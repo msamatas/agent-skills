@@ -1,108 +1,52 @@
-# Execution Workflow Guide
+# k6 Load Tester Execution Workflow
 
-Follow these step-by-step instructions to orchestrate standard load profile execution, codebase-informed flaw analysis, container log inspection, and dual-section reporting.
-
----
-
-## Step 1: Codebase & Route Discovery
-
-1. **Endpoint Extraction**:
-   - Inspect controllers (`@RestController`, Express routes, FastAPI routes).
-   - Extract HTTP methods, path parameters, query parameters, and body payloads.
-2. **Configuration Inspection**:
-   - Inspect `application.yml` / `properties` or `docker-compose.yml` for port mappings, DB connection pool size (`hikari.maximum-pool-size`), web server thread pool size (`server.tomcat.threads.max`), and logging levels.
-3. **Auth Token Setup**:
-   - If endpoints require authentication, construct dynamic token acquisition in k6 `setup()` functions.
+This reference defines the step-by-step procedure for analyzing candidate applications, designing traffic-shaped load profiles, executing tests, and producing individual reports in the script folder.
 
 ---
 
-## Step 2: Service Stand-Up & Health Check
+## Step 1: Codebase Analysis & Multi-Endpoint Discovery
 
-1. Launch target container service:
+1. Inspect project directory structure and source files.
+2. Identify all domain entry points (list endpoints, detail lookups, search filters, creation/update endpoints, authentication flows).
+3. Identify application configuration parameters (server port, database connection pool, thread pools).
+4. Map out a realistic multi-endpoint **Domain User Journey** representing actual user interaction patterns.
+
+---
+
+## Step 2: k6 Script Design & Traffic Shaping
+
+1. Create a `k6-scripts/` directory inside the project root if it does not already exist.
+2. Write `01_deterministic_standard_profiles.js` implementing a weighted multi-endpoint traffic distribution across the discovered domain user journey (**never using a single `/health` endpoint**).
+3. If specific software bugs or taxonomy anti-patterns are uncovered during code inspection, write specialized k6 scripts (e.g. `02_specialized_flaw_scenario.js`) layered on top of the standard profiles to empirically demonstrate the issue.
+
+---
+
+## Step 3: Service Stand-Up & k6 Execution
+
+1. Start target application containers or native binaries (`python app.py`, `java -jar ...`).
+2. Run `k6.exe` against the service endpoints:
    ```bash
-   docker-compose up -d --build
+   k6.exe run -e BASE_URL="http://localhost:<PORT>" --summary-export=<project>_summary.json k6-scripts/01_deterministic_standard_profiles.js
    ```
-2. Verify service health before initiating load profiles:
+3. Run any specialized flaw scripts:
    ```bash
-   curl -s http://localhost:8080/actuator/health
-   docker ps
-   ```
-
----
-
-## Step 3: Phase 1 — Deterministic Standard Profile Execution
-
-Execute the mandatory 5 standard load profiles in strict sequence against discovered service endpoints:
-
-```bash
-# 1. Smoke Profile (1 VU, 30s)
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=smoke_summary.json - < scripts/01_smoke.js
-
-# 2. Ramp-Up / Load Profile (20 VUs, 3m)
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=load_summary.json - < scripts/02_load.js
-
-# 3. Spike Profile (100 VUs burst, 2m)
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=spike_summary.json - < scripts/03_spike.js
-
-# 4. Stress Profile (150 VUs peak, 5m)
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=stress_summary.json - < scripts/04_stress.js
-
-# 5. Soak Profile (30 VUs sustained, 5m)
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=soak_summary.json - < scripts/05_soak.js
-```
-
----
-
-## Step 4: Phase 2 — Code-Informed Specialized Flaw Analysis
-
-1. Inspect source code for specific anti-patterns matching the 16-item taxonomy (e.g. `@Transactional` wrapping HTTP calls, missing `.remove()` on `ThreadLocal`, lazy ORM loops, `.parallelStream()` usage).
-2. Generate targeted ad-hoc k6 scripts (`scripts/06_specialized_flaw_test.js`) specifically tailored to trigger identified code vulnerabilities.
-3. Execute specialized scenario:
-   ```bash
-   docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=specialized_summary.json - < scripts/06_specialized_flaw_test.js
+   k6.exe run -e BASE_URL="http://localhost:<PORT>" --summary-export=<project>_flaw_summary.json k6-scripts/02_specialized_flaw_scenario.js
    ```
 
 ---
 
-## Step 5: Container Log & Exception Extraction
+## Step 4: Individual Report Generation in Script Folder
 
-Extract container logs post-test to capture unhandled runtime exceptions:
-```bash
-docker logs --tail 300 <container_name> > app_errors.log
-
-# Scan for taxonomy indicators
-grep -iE "CannotGetJdbcConnectionException|LockTimeoutException|ConcurrentModificationException|OutOfMemoryError|BindException|SQLITE_BUSY|Deadlock" app_errors.log
-```
-
----
-
-## Step 6: Service Teardown
-
-```bash
-docker-compose down -v
-```
+Save the individual project analysis report **directly inside the project's k6 script folder**:
+- **Target File**: `<project-root>/k6-scripts/ANALYSIS.md`
+- **Structure**:
+  1. Executive Overview & Discovered User Journeys
+  2. Phase 1 Common Load Profile Metrics (Smoke, Load, Spike, Stress, Soak)
+  3. Phase 2 Specialized Flaw Verification (Custom Profiles, Empirical Log Evidence)
+  4. Taxonomy Mapping (`Flaw 1.1` to `Flaw 6.2`)
 
 ---
 
-## Step 7: Dual-Section Report Generation
+## Step 5: Master Document Synthesis
 
-Format final analysis output according to this standard structure:
-
-### Section 1: Standard Load Profile Results
-| Profile | Target VUs | Duration | Throughput (req/s) | p(95) Latency | Error Rate (%) | Status |
-| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
-| **Smoke** | 1 | 30s | ... | ... | ...% | PASS |
-| **Ramp-Up / Load** | 20 | 3m | ... | ... | ...% | PASS |
-| **Spike** | 100 | 2m | ... | ... | ...% | FAIL (High Error) |
-| **Stress** | 150 | 5m | ... | ... | ...% | FAIL (Breaks) |
-| **Soak** | 30 | 5m | ... | ... | ...% | PASS |
-
-### Section 2: Code-Informed Specialized Flaw Results
-* **Target Endpoint**: `/api/v1/...`
-* **Vulnerability Hypothesis**: [Description of identified code anti-pattern]
-* **Specialized Scenario Output**: [Throughput, p95 latency, error rates, log excerpts]
-
-### Section 3: Flaw Explanation & Taxonomy Mapping
-* **Identified Flaw**: `Flaw X.Y [Taxonomy Flaw Name]`
-* **Root Cause Analysis**: Code link/file location, explanation of why single-user QA missed it, and empirical evidence captured during load testing.
-* **Remediation Recommendation**: Specific code/configuration fix.
+Summarize findings from each `<project-root>/k6-scripts/ANALYSIS.md` report into the master thesis summary document at `thesis/projects/ANALYSIS_SUMMARY.md`.

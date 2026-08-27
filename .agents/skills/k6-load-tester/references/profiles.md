@@ -1,157 +1,130 @@
-# Load Profiles & Flaw Detection Configurations
+# k6 Traffic Shaping & Profile Configurations
 
-This document specifies the exact k6 `options` configurations used across both phases of the execution workflow.
+This reference specifies how to construct realistic, multi-endpoint k6 traffic-shaping scenarios for both **Phase 1 (Common Load Profiles)** and **Phase 2 (Specialized Flaw Scenarios)**.
 
 ---
 
-## Phase 1: Mandatory Deterministic Load Profiles
+## 1. Phase 1: Realistic Common Load Profiles (Multi-Endpoint User Journeys)
 
-Every application analysis MUST execute these 5 standard profiles in sequence to establish baseline performance metrics prior to code-informed specialized testing.
+Instead of targeting a single endpoint, Phase 1 k6 scripts MUST define a realistic domain user journey that distributes traffic across multiple discovered routes based on real-world usage patterns.
 
-### 1. Smoke Profile
-* **Purpose**: Verify endpoint health and basic HTTP assertion validity under single-VU execution.
+### Traffic-Shaping Pattern (Weighted Domain Multi-Endpoint Scenario)
+
 ```javascript
-export const options = {
-  vus: 1,
-  duration: '30s',
-  thresholds: {
-    http_req_failed: ['rate<0.01'],
-    http_req_duration: ['p(95)<500'],
-  },
-};
-```
+import http from 'k6/http';
+import { check, sleep } from 'k6';
 
-### 2. Ramp-Up / Load Profile
-* **Purpose**: Assess system stability and throughput under expected peak operational volume.
-```javascript
 export const options = {
   stages: [
-    { duration: '30s', target: 20 },
-    { duration: '2m', target: 20 },
-    { duration: '30s', target: 0 },
-  ],
-  thresholds: {
-    http_req_duration: ['p(95)<1000'],
-    http_req_failed: ['rate<0.02'],
-  },
-};
-```
-
-### 3. Spike Profile
-* **Purpose**: Evaluate traffic burst handling, queue recovery, check-then-act timing windows, and thread state isolation.
-```javascript
-export const options = {
-  stages: [
-    { duration: '10s', target: 5 },
-    { duration: '1m', target: 100 }, // sudden burst
-    { duration: '1m', target: 100 },
-    { duration: '10s', target: 0 },
-  ],
-};
-```
-
-### 4. Stress Profile
-* **Purpose**: Determine system breaking points, resource pool saturation thresholds, and STW GC pause triggers.
-```javascript
-export const options = {
-  stages: [
-    { duration: '1m', target: 50 },
-    { duration: '2m', target: 50 },
-    { duration: '1m', target: 150 }, // exceed typical thread/DB connection pool sizes
-    { duration: '2m', target: 150 },
-    { duration: '1m', target: 0 },
+    { duration: '15s', target: 1 },   // Smoke Stage
+    { duration: '30s', target: 20 },  // Load Stage
+    { duration: '15s', target: 100 }, // Spike Stage
+    { duration: '30s', target: 50 },  // Stress Stage
+    { duration: '15s', target: 0 },   // Ramp-down
   ],
   thresholds: {
     http_req_failed: ['rate<0.05'],
+    http_req_duration: ['p(95)<1000'],
   },
 };
-```
 
-### 5. Soak / Endurance Profile
-* **Purpose**: Detect OS socket/file descriptor leaks (`TIME_WAIT` buildup) and slow heap memory growth.
-```javascript
-export const options = {
-  stages: [
-    { duration: '30s', target: 30 },
-    { duration: '5m', target: 30 }, // sustained load over extended duration
-    { duration: '30s', target: 0 },
-  ],
-};
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+
+export default function () {
+  const rand = Math.random();
+
+  if (rand < 0.50) {
+    // 50% Traffic: Browse Domain List / Feed
+    const res = http.get(`${BASE_URL}/api/v1/resources`);
+    check(res, { 'list status 200': (r) => r.status === 200 });
+  } else if (rand < 0.80) {
+    // 30% Traffic: View Item Detail
+    const res = http.get(`${BASE_URL}/api/v1/resources/1`);
+    check(res, { 'detail status 200': (r) => r.status === 200 });
+  } else if (rand < 0.95) {
+    // 15% Traffic: Search / Query Filter
+    const res = http.get(`${BASE_URL}/api/v1/resources?search=test`);
+    check(res, { 'search status 200': (r) => r.status === 200 });
+  } else {
+    // 5% Traffic: Write / Create Transaction
+    const payload = JSON.stringify({ name: `item_${__VU}_${__ITER}` });
+    const headers = { 'Content-Type': 'application/json' };
+    const res = http.post(`${BASE_URL}/api/v1/resources`, payload, { headers });
+    check(res, { 'create status 200/201': (r) => r.status === 200 || r.status === 201 });
+  }
+
+  sleep(0.5);
+}
 ```
 
 ---
 
-## Phase 2: Specialized Flaw Detection Profiles
+## 2. Phase 2: Specialized Flaw Detection Profiles (Custom Layered Scenarios)
 
-Use these ad-hoc k6 scenario configurations when code inspection reveals specific architectural anti-patterns from the 16-item taxonomy.
+When code analysis uncovers specific software bugs or architectural flaws, add dedicated k6 `scenarios` on top of Phase 1 to trigger and empirically verify the flaw.
 
-### ThreadLocal Security Bleed Scenario (`Flaw 1.1`)
-Executes parallel authenticated and anonymous VU groups to detect cross-user data leakage on pooled threads.
+### A. Concurrent Race Condition / Check-Then-Act Spike (`Flaw 1.2`)
+Synchronizes VUs to hit a single transactional endpoint simultaneously.
 ```javascript
 export const options = {
   scenarios: {
-    authenticated_users: {
-      executor: 'constant-vus',
-      vus: 10,
-      duration: '2m',
-      exec: 'authenticatedScenario',
-    },
-    anonymous_users: {
-      executor: 'constant-vus',
-      vus: 10,
-      duration: '2m',
-      exec: 'anonymousScenario',
+    concurrent_race: {
+      executor: 'per-vu-iterations',
+      vus: 30,
+      iterations: 1,
+      maxDuration: '10s',
+      exec: 'triggerRaceCondition',
     },
   },
 };
 ```
 
-### Resource Pool Starvation Probe (`Flaw 2.1` & `Flaw 2.2`)
-Bombards slow/transactional endpoints while probing a lightweight health check to detect pool starvation.
-```javascript
-export const options = {
-  scenarios: {
-    fast_probe: {
-      executor: 'constant-vus',
-      vus: 2,
-      duration: '3m',
-      exec: 'fastProbeScenario',
-    },
-    blocking_heavy: {
-      executor: 'constant-vus',
-      vus: 40,
-      duration: '3m',
-      exec: 'blockingHeavyScenario',
-    },
-  },
-  thresholds: {
-    'http_req_duration{scenario:fast_probe}': ['max<500'], // fast probe must remain fast
-  },
-};
-```
-
-### Memory Thrashing & STW GC Probe (`Flaw 5.1`)
-Triggers heavy unpaginated data allocations while measuring latency spikes on fast baseline probes.
+### B. Pool Starvation Probe (`Flaw 2.1` & `Flaw 2.2`)
+Pairs a heavy/blocking workload scenario with a lightweight probe scenario to measure starvation.
 ```javascript
 export const options = {
   scenarios: {
     latency_probe: {
       executor: 'constant-vus',
       vus: 2,
-      duration: '3m',
-      exec: 'probeEndpoint',
+      duration: '2m',
+      exec: 'probeScenario',
     },
-    unpaginated_allocator: {
-      executor: 'ramping-vus',
-      stages: [
-        { duration: '1m', target: 10 },
-        { duration: '2m', target: 30 },
-      ],
-      exec: 'unpaginatedEndpoint',
+    heavy_blocking_load: {
+      executor: 'constant-vus',
+      vus: 40,
+      duration: '2m',
+      exec: 'heavyScenario',
     },
   },
   thresholds: {
-    'http_req_duration{scenario:latency_probe}': ['max<200'],
+    'http_req_duration{scenario:latency_probe}': ['p(95)<200'],
   },
 };
 ```
+
+### C. Database Hot-Row Write Contention (`Flaw 3.1`)
+Surges concurrent VUs updating identical database entities (e.g. SQLite DB lock or MySQL row locks).
+```javascript
+export const options = {
+  scenarios: {
+    hot_row_writers: {
+      executor: 'ramping-vus',
+      stages: [
+        { duration: '10s', target: 5 },
+        { duration: '30s', target: 30 },
+        { duration: '10s', target: 0 },
+      ],
+      exec: 'writeTransaction',
+    },
+  },
+};
+```
+
+---
+
+## 3. Report Placement Rule
+
+The generated analysis report for any candidate project **MUST ALWAYS BE SAVED IN THE SCRIPT FOLDER**:
+- Path: `<project-directory>/k6-scripts/ANALYSIS.md`
+- Master Summary: Synthesize findings into `thesis/projects/ANALYSIS_SUMMARY.md`.
