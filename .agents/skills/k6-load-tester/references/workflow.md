@@ -1,88 +1,108 @@
-# Execution Workflow
+# Execution Workflow Guide
 
-Follow these step-by-step instructions to analyze services, run k6 load tests, and extract empirical proof of performance flaws.
-
----
-
-## 1. Codebase & Route Discovery
-
-### Spring Boot / Java Services
-1. Search for `@RestController`, `@Controller`, `@RequestMapping`, `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`.
-2. Extract path variables (`@PathVariable`), query parameters (`@RequestParam`), and body schemas (`@RequestBody`).
-3. Check `application.yml` or `application.properties` for port settings (`server.port`), database pool configs (`spring.datasource.hikari.maximum-pool-size`), and thread pool settings (`server.tomcat.threads.max`).
-
-### Node.js / Python / Go Services
-- Express / NestJS: Search for `app.get`, `app.post`, `@Get()`, `@Post()`.
-- FastAPI / Flask: Search for `@app.get`, `@app.post`, `@router.get`.
+Follow these step-by-step instructions to orchestrate standard load profile execution, codebase-informed flaw analysis, container log inspection, and dual-section reporting.
 
 ---
 
-## 2. Stand Up Service & Health Check
+## Step 1: Codebase & Route Discovery
 
-### Launch Service
-If `docker-compose.yml` exists:
-```bash
-docker-compose up -d --build
-```
-Otherwise, build and run using `docker build` and `docker run`.
-
-### Verify Readiness
-Ensure container services are healthy before launching tests:
-```bash
-# Spring Boot Actuator health check (if present)
-curl -s http://localhost:8080/actuator/health
-
-# Or check container status
-docker ps
-```
+1. **Endpoint Extraction**:
+   - Inspect controllers (`@RestController`, Express routes, FastAPI routes).
+   - Extract HTTP methods, path parameters, query parameters, and body payloads.
+2. **Configuration Inspection**:
+   - Inspect `application.yml` / `properties` or `docker-compose.yml` for port mappings, DB connection pool size (`hikari.maximum-pool-size`), web server thread pool size (`server.tomcat.threads.max`), and logging levels.
+3. **Auth Token Setup**:
+   - If endpoints require authentication, construct dynamic token acquisition in k6 `setup()` functions.
 
 ---
 
-## 3. Run K6 via Docker
+## Step 2: Service Stand-Up & Health Check
 
-Execute the k6 script using `grafana/k6`:
+1. Launch target container service:
+   ```bash
+   docker-compose up -d --build
+   ```
+2. Verify service health before initiating load profiles:
+   ```bash
+   curl -s http://localhost:8080/actuator/health
+   docker ps
+   ```
 
-### Linux / WSL (`--network="host"`)
+---
+
+## Step 3: Phase 1 — Deterministic Standard Profile Execution
+
+Execute the mandatory 5 standard load profiles in strict sequence against discovered service endpoints:
+
 ```bash
-docker run --rm -i --network="host" grafana/k6 run - < script.js
-```
+# 1. Smoke Profile (1 VU, 30s)
+docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=smoke_summary.json - < scripts/01_smoke.js
 
-### Windows / macOS (`host.docker.internal`)
-```bash
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run - < script.js
-```
+# 2. Ramp-Up / Load Profile (20 VUs, 3m)
+docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=load_summary.json - < scripts/02_load.js
 
-### Export Raw Metrics
-```bash
-docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=results.json - < script.js
+# 3. Spike Profile (100 VUs burst, 2m)
+docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=spike_summary.json - < scripts/03_spike.js
+
+# 4. Stress Profile (150 VUs peak, 5m)
+docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=stress_summary.json - < scripts/04_stress.js
+
+# 5. Soak Profile (30 VUs sustained, 5m)
+docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=soak_summary.json - < scripts/05_soak.js
 ```
 
 ---
 
-## 4. Extract Container Logs for Flaw Diagnosis
+## Step 4: Phase 2 — Code-Informed Specialized Flaw Analysis
 
-After k6 test completion, inspect container logs to detect unhandled exceptions and structural bottlenecks:
+1. Inspect source code for specific anti-patterns matching the 16-item taxonomy (e.g. `@Transactional` wrapping HTTP calls, missing `.remove()` on `ThreadLocal`, lazy ORM loops, `.parallelStream()` usage).
+2. Generate targeted ad-hoc k6 scripts (`scripts/06_specialized_flaw_test.js`) specifically tailored to trigger identified code vulnerabilities.
+3. Execute specialized scenario:
+   ```bash
+   docker run --rm -i -e BASE_URL="http://host.docker.internal:8080" grafana/k6 run --summary-export=specialized_summary.json - < scripts/06_specialized_flaw_test.js
+   ```
+
+---
+
+## Step 5: Container Log & Exception Extraction
+
+Extract container logs post-test to capture unhandled runtime exceptions:
 ```bash
-# Capture application container logs
-docker logs --tail 200 <container_name_or_id> > app_errors.log
+docker logs --tail 300 <container_name> > app_errors.log
 
-# Grep for taxonomy indicators
-grep -iE "CannotGetJdbcConnectionException|LockTimeoutException|ConcurrentModificationException|OutOfMemoryError|Connection refused|Timeout" app_errors.log
+# Scan for taxonomy indicators
+grep -iE "CannotGetJdbcConnectionException|LockTimeoutException|ConcurrentModificationException|OutOfMemoryError|BindException|SQLITE_BUSY|Deadlock" app_errors.log
 ```
 
 ---
 
-## 5. Teardown
+## Step 6: Service Teardown
+
 ```bash
 docker-compose down -v
 ```
 
 ---
 
-## 6. Analysis & Summary Reporting
+## Step 7: Dual-Section Report Generation
 
-Generate a final report containing:
-- **Throughput**: `http_reqs` (requests/sec)
-- **Latency Distribution**: Average, `p(95)`, and `max` latency
-- **Error Rate**: `http_req_failed` %
-- **Uncovered Taxonomy Flaws**: Any DB connection timeouts, STW GC pauses, race conditions, or context bleed observed in metrics or logs.
+Format final analysis output according to this standard structure:
+
+### Section 1: Standard Load Profile Results
+| Profile | Target VUs | Duration | Throughput (req/s) | p(95) Latency | Error Rate (%) | Status |
+| :--- | :---: | :---: | :---: | :---: | :---: | :---: |
+| **Smoke** | 1 | 30s | ... | ... | ...% | PASS |
+| **Ramp-Up / Load** | 20 | 3m | ... | ... | ...% | PASS |
+| **Spike** | 100 | 2m | ... | ... | ...% | FAIL (High Error) |
+| **Stress** | 150 | 5m | ... | ... | ...% | FAIL (Breaks) |
+| **Soak** | 30 | 5m | ... | ... | ...% | PASS |
+
+### Section 2: Code-Informed Specialized Flaw Results
+* **Target Endpoint**: `/api/v1/...`
+* **Vulnerability Hypothesis**: [Description of identified code anti-pattern]
+* **Specialized Scenario Output**: [Throughput, p95 latency, error rates, log excerpts]
+
+### Section 3: Flaw Explanation & Taxonomy Mapping
+* **Identified Flaw**: `Flaw X.Y [Taxonomy Flaw Name]`
+* **Root Cause Analysis**: Code link/file location, explanation of why single-user QA missed it, and empirical evidence captured during load testing.
+* **Remediation Recommendation**: Specific code/configuration fix.
