@@ -24,13 +24,13 @@ This reference defines the step-by-step procedure for analyzing candidate applic
 ## Step 3: Service Stand-Up & k6 Execution
 
 1. Start target application containers or native binaries (`python app.py`, `java -jar ...`).
-2. Run `k6.exe` against the service endpoints:
+2. Run `k6.exe` against the service endpoints, saving raw result JSON files directly inside `k6-scripts/`:
    ```bash
-   k6.exe run -e BASE_URL="http://localhost:<PORT>" --summary-export=<project>_summary.json k6-scripts/01_deterministic_standard_profiles.js
+   k6.exe run -e BASE_URL="http://localhost:<PORT>" --summary-export=k6-scripts/01_standard_summary.json k6-scripts/01_deterministic_standard_profiles.js
    ```
-3. Run any specialized flaw scripts:
+3. Run any specialized flaw scripts, saving raw result JSON files directly inside `k6-scripts/`:
    ```bash
-   k6.exe run -e BASE_URL="http://localhost:<PORT>" --summary-export=<project>_flaw_summary.json k6-scripts/02_specialized_flaw_scenario.js
+   k6.exe run -e BASE_URL="http://localhost:<PORT>" --summary-export=k6-scripts/02_specialized_flaw_summary.json k6-scripts/02_specialized_flaw_scenario.js
    ```
 
 ---
@@ -39,14 +39,16 @@ This reference defines the step-by-step procedure for analyzing candidate applic
 
 Save the individual project analysis report **directly inside the project's k6 script folder**:
 - **Target File**: `<project-root>/k6-scripts/ANALYSIS.md`
+- **Mandatory Reporting Directive**: The report MUST focus on summarizing the **empirical findings themselves** with exact quantitative metrics (total request count, throughput req/s, average, p90, p95, and max latencies, HTTP failure percentages and counts, bytes transferred, exact error messages, stack traces, over-redemption counts, and lock contention numbers), rather than merely listing setup parameters or distinguishing Phase 1 vs Phase 2.
 - **Structure**:
   1. Executive Overview & Discovered User Journeys
-  2. Phase 1 Common Load Profile Metrics (Smoke, Load, Spike, Stress, Soak)
-  3. Phase 2 Specialized Flaw Verification (Custom Profiles, Empirical Log Evidence)
-  4. Taxonomy Mapping (`Flaw 1.1` to `Flaw 6.2`)
+  2. Empirical Findings Summary & Metrics (Total HTTP requests, Throughput req/s, avg/p90/p95/max latencies, Failure rate & count, Data transferred)
+  3. Raw Execution Result Files Index (`k6-scripts/01_standard_summary.json`, `k6-scripts/02_specialized_summary.json`)
+  4. Flaw & Bug Analysis (Empirical Proof, Exceptions, Log Evidence, Root Causes)
+  5. Taxonomy Mapping (`Flaw 1.1` to `Flaw 6.2`)
 
 ---
 
 ## Step 5: Master Document Synthesis
 
-Summarize findings from each `<project-root>/k6-scripts/ANALYSIS.md` report into the master thesis summary document at `thesis/projects/ANALYSIS_SUMMARY.md`.
+Synthesize findings from each `<project-root>/k6-scripts/ANALYSIS.md` report into the master thesis summary document at `thesis/projects/ANALYSIS_SUMMARY.md`.

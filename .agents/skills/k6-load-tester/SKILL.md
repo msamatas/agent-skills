@@ -59,12 +59,14 @@ If code inspection reveals specific software bugs or architectural flaws from th
 - **Hardware & Memory (`Flaw 4.1` – `Flaw 5.2`)**: Unpaginated list/export fetch allocators or socket connection floods.
 - **Distributed System Failures (`Flaw 6.1` – `Flaw 6.2`)**: Inter-service RPC fan-out latency injection.
 
-### 6. Log & Exception Extraction
-Extract application logs post-test to detect runtime exceptions (`CannotGetJdbcConnectionException`, `LockTimeoutException`, `SQLiteException`, `ConcurrentModificationException`, `OutOfMemoryError`).
+### 6. Raw Result Export & Log Extraction
+- **Raw Execution Results**: Every `k6` execution run MUST export its raw metrics JSON file directly into the script directory using `--summary-export=k6-scripts/<scenario>_summary.json` (e.g. `k6-scripts/01_standard_summary.json`, `k6-scripts/02_specialized_summary.json`).
+- **Log Extraction**: Extract application logs post-test to detect runtime exceptions (`CannotGetJdbcConnectionException`, `LockTimeoutException`, `SQLiteException`, `ConcurrentModificationException`, `NullPointerException`, `OutOfMemoryError`).
 
-### 7. Report Location & Synthesis Rule
-- **Mandatory File Location**: The complete individual report for each candidate project MUST be saved **in the same folder as the k6 scripts** (e.g. `<project-root>/k6-scripts/ANALYSIS.md`).
-- **Master Summary Integration**: Summarize the empirical findings from each project's script folder report into the master document at `thesis/projects/ANALYSIS_SUMMARY.md`.
+### 7. Script Directory Report & Synthesis Rules
+- **Mandatory Report File Location**: The complete individual analysis report for each candidate project MUST be saved **directly in the script folder** at **`<project-root>/k6-scripts/ANALYSIS.md`**.
+- **Empirical Findings Summary Directives**: The `ANALYSIS.md` file MUST summarize the **empirical findings themselves** with exact quantitative metrics (total request count, throughput req/s, average, p90, p95, and max latencies, HTTP failure percentages and counts, bytes transferred, exact error messages, stack traces, over-redemption counts, and lock contention numbers), **NOT ONLY their setup and which test found what, and if it was phase 1 or 2**.
+- **Master Summary Integration**: Synthesize the empirical findings from each project's `<project-root>/k6-scripts/ANALYSIS.md` into the master document at `thesis/projects/ANALYSIS_SUMMARY.md`.
 
 ---
 
