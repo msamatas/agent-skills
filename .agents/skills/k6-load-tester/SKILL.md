@@ -1,15 +1,15 @@
 ---
 name: k6-load-tester
-description: Analyzes service codebases (Spring Boot / Java, Node.js Express, Python FastAPI, Go) to discover realistic multi-endpoint entry points and user journeys, crafts k6 traffic-shaping load profiles (Smoke, Load, Spike, Stress, Soak), performs code-informed specialized flaw detection, and generates reports saved directly alongside k6 scripts.
+description: Analyzes service codebases (Spring Boot / Java, Node.js Express, Python FastAPI, Go) to discover realistic multi-endpoint entry points and user journeys, executes a standardized 2-phase load testing methodology (Phase 1: comparable 10-VU 120s control baseline; Phase 2: project-tailored 65-VU 120s flaw trigger + canary probe), and generates empirical reports saved directly alongside k6 scripts.
 ---
 
 # K6 Load Tester
 
-This skill automates performance quality assurance, realistic traffic-shaping load testing, and active structural flaw debugging for service-based applications using k6.
+This skill automates performance quality assurance, comparable baseline load testing, and code-informed structural flaw verification for service-based applications using k6.
 
-It follows a **deterministic, 2-phase execution strategy**:
-1. **Phase 1 (Realistic Common Load Profiles)**: Analyzes codebase architecture to map key domain entry points and user journeys, then executes a structured suite of common load profiles (Smoke, Load, Spike, Stress, Soak) using k6 traffic shaping across multi-endpoint domain paths (**never hitting just a single `/health` endpoint**).
-2. **Phase 2 (Specialized Code-Informed Flaw Analysis)**: Inspects source code for specific software bugs and anti-patterns matching the 16-item taxonomy, constructs custom targeted flaw scenarios layered on top of common profiles, and extracts empirical proof of uncovered vulnerabilities.
+It enforces a **strict, scientifically comparable 2-phase execution strategy**:
+1. **Phase 1 — Standardized Control Baseline (`01_deterministic_standard_profiles.js`)**: Executes a uniform, non-destructive **10-VU, 120-second (`2m`) steady-state baseline** across a probabilistic weighted multi-endpoint user journey (4–6 domain routes, `sleep(0.1)` pacing). Phase 1 acts as the **experimental control group** and must never include high-VU spikes or destructive stress bursts that prematurely trigger flaws.
+2. **Phase 2 — Project-Tailored Flaw Stress & Isolation (`02_specialized_stress.js`)**: Inspects source code for specific anti-patterns matching the **Structural Flaw Taxonomy**, and executes a tailored **60–65 VU, 120-second stress profile** using either **Pattern 2A (Dual-Scenario Flaw Trigger + Canary Latency Probe)** or **Pattern 2B (Synchronized Concurrency / Context Bleed Barrier)** to empirically isolate and prove the flaw.
 
 ---
 
@@ -17,61 +17,51 @@ It follows a **deterministic, 2-phase execution strategy**:
 
 ```mermaid
 flowchart TD
-    A["1. Codebase Analysis & Multi-Endpoint Discovery"] --> B["2. Domain User Journey & Traffic Shaping Design"]
-    B --> C["3. Service Stand-Up & Verification"]
-    C --> D["4. Phase 1: Realistic Common Load Profiles\n(Smoke → Load → Spike → Stress → Soak across User Journeys)"]
-    D --> E["5. Phase 2: Specialized Flaw Scenarios\n(Custom Profiles Targeting Software Bugs & Taxonomy Flaws)"]
-    E --> F["6. Log & Exception Extraction"]
+    A["1. Codebase Analysis & Multi-Endpoint Discovery"] --> B["2. Domain User Journey & Flaw Hypothesis Design"]
+    B --> C["3. Service Stand-Up & Readiness Verification"]
+    C --> D["4. Phase 1: Standardized Control Baseline\n(10 VUs for 120s across Weighted Multi-Endpoint User Journey)"]
+    D --> E["5. Phase 2: Project-Tailored Flaw Stress\n(Pattern 2A: 55-VU Flaw Trigger + 10-VU Canary Probe for 120s\nOR Pattern 2B: Synchronized Concurrency / Bleed Barrier)"]
+    E --> F["6. Log, Exception & Resource Telemetry Extraction"]
     F --> G["7. Report Generation Saved in Script Directory\n(<project>/k6-scripts/ANALYSIS.md)"]
 ```
 
 ### 1. Codebase Analysis & Multi-Endpoint Discovery
-- **Spring Boot / Java**: Search for `@RestController`, `@RequestMapping`, `@GetMapping`, `@PostMapping`, `@PutMapping`, `@DeleteMapping`. Inspect controllers, DTOs, entity relationships, and service methods.
+- **Spring Boot / Java / Scala / Groovy**: Search for `@RestController`, `@Controller`, `@RequestMapping`, `@GetMapping`, `@PostMapping`, servlet `Filter` chains, and DAO/MyBatis/JPA queries.
 - **Python / Node.js / Go**: Parse Express, Flask/FastAPI, Gin/Fiber routes and request handlers.
-- **Entry Point Mapping**: Discover all key functional routes (authentication, list browsing, item detail views, searches, data creation/updates, background tasks).
-- **Configuration Inspection**: Read application properties/YAML for server port (`server.port`), connection pools (`hikari.maximum-pool-size`), thread pools (`server.tomcat.threads.max`), and timeouts.
+- **Entry Point Mapping**: Discover 4–6 representative functional routes (authentication, list browsing, item detail views, search/filtering, and lightweight creation/status checks) plus specific endpoints containing structural flaws.
+- **Configuration Inspection**: Read application properties/YAML for server port (`server.port`), connection pools (`hikari.maximum-pool-size`, `druid.max-active`), thread pools (`server.tomcat.threads.max`, Quartz/async pools), and timeouts.
 
-### 2. Domain User Journey & Traffic Shaping Design
-Construct realistic multi-endpoint user journeys in k6 using advanced traffic shaping:
-- **Weighted Request Distribution**: Combine routes dynamically within scenario functions (e.g., 50% list browsing, 25% detail view, 15% search, 10% item creation).
-- **k6 Traffic Shaping Features**: Utilize k6 `scenarios`, `exec`, `ramping-vus`, `ramping-arrival-rate`, `constant-arrival-rate`, dynamic synthetic payload generation, and authentication headers (`setup()` JWT acquisition).
-- **STRICT DIRECTIVE**: **NEVER restrict load tests to a single `/health` or trivial status check endpoint.** Load profiles MUST exercise realistic domain business logic paths.
+### 2. Phase 1: Standardized Control Baseline (`01_deterministic_standard_profiles.js`)
+Phase 1 MUST be comparable across all benchmarked projects:
+- **Fixed Load Envelope**: **10 VUs for 120 seconds** (`10s` ramp to `10 VUs` $\rightarrow$ `100s` steady at `10 VUs` $\rightarrow$ `10s` ramp-down to `0 VUs`). **Do NOT put 50–100 VU spike stages inside Phase 1.**
+- **Probabilistic Single-Request Branching**: Use `const rand = Math.random()` inside `export default function()` so each VU iteration executes **one** weighted endpoint (e.g., 40% list browse, 25% item detail, 20% search/query, 15% light write/metadata) rather than chaining 10 sequential calls in a single iteration.
+- **Uniform Think-Time Pacing**: Use `sleep(0.1)` at the end of each iteration so baseline throughput (`req/s`) and latency percentiles ($p50, p90, p95, \max$) are directly comparable across projects.
+- **STRICT DIRECTIVE**: **NEVER restrict load tests to a single `/health` endpoint**, and **NEVER overload Phase 1 with high concurrency that causes baseline failures.**
 
-### 3. Service Stand-Up & Verification
-- Stand up target containers via Docker (`docker-compose up -d --build` / native service execution).
-- Verify service readiness before launching k6 scenarios.
+### 3. Phase 2: Project-Tailored Flaw Stress (`02_specialized_stress.js`)
+Craft a custom Phase 2 script tailored to the exact architectural flaw uncovered in the codebase, matching the **120-second (`2m`)** test window (except for instantaneous barrier race tests):
+- **Pattern 2A — Dual-Scenario Flaw Trigger + Canary Probe (`Flaws 1.3–1.4, 2.1–2.4, 3.1, 3.2b, 3.3, 4.1–4.3, 5.1–5.2, 6.1–6.2`)**:
+  - **`flaw_trigger` scenario (`55 VUs`, `120s` ramping/steady, `sleep(0.02)`)**: Concentrates traffic and flaw-amplifying payloads directly on the vulnerable code path (e.g., complex regexes, unindexed leading-wildcard `LIKE '%a%'`, `_revinclude` / N+1 graph queries, synchronous file/DB locks, heavy batch/export allocations, unbounded event-store registrations, or reactive `.flatMap()` fan-outs).
+  - **`canary_probe` scenario (`10 VUs` or `constant-arrival-rate: 10/s`, `120s`)**: Concurrently probes a fast, non-contended baseline endpoint (e.g., `/health`, `/login`, `/api/registry`, or fast metadata GET) with tagged metrics (`tags: { name: 'CanaryProbe' }`) to prove both **local flaw degradation** and **cross-endpoint collateral starvation**.
+- **Pattern 2B — Synchronized Concurrency / State Isolation Barrier (`Flaws 1.1, 1.2, 3.2a`)**:
+  - **Check-Then-Act & Optimistic Lock Collisions (`Flaw 1.2`, `Flaw 3.2a`)**: Use `per-vu-iterations` (`30–60 VUs`) or high-concurrency `ramping-vus` (`65 VUs`) simultaneously mutating the **exact same shared entity ID** (`couponId`, `taskId`, `executionId`, or inventory SKU) to maximize race/abort collisions, paired with a `canary_probe` scenario.
+  - **`ThreadLocal` Context Bleed (`Flaw 1.1`)**: Pair `55 VUs` executing authenticated/tenant-scoped requests with `10 VUs` executing unauthenticated or cross-tenant/missing-header security probes on the shared worker thread pool to assert context isolation (`check()` failure rate).
 
-### 4. Phase 1: Realistic Common Load Profiles
-Execute the standard suite of common load profiles using multi-endpoint traffic shaping:
-1. **Smoke Profile**: 1 VU for 30s to verify all domain endpoints in the user journey respond correctly under 200/201 status codes.
-2. **Ramp-Up / Load Profile**: 20 VUs sustained for 2–3m to measure normal operational capacity, p(95) latency, and throughput.
-3. **Spike Profile**: Rapid traffic burst (50–100+ VUs in 10s) to evaluate queue buildup, check-then-act timing windows, and thread state isolation under sudden load spikes.
-4. **Stress Profile**: Ramping VUs to breaking points (100–200 VUs) to measure pool exhaustion thresholds, row lock contention, and STW GC pauses.
-5. **Soak Profile**: Sustained execution (3–5m) to detect OS socket/file descriptor leaks and slow memory degradation.
+### 4. Raw Result Export, Telemetry & Log Extraction
+- **Raw Execution Results**: Every `k6` execution run MUST export its raw metrics JSON file directly into `k6-scripts/`:
+  - `k6-scripts/01_standard_summary.json`
+  - `k6-scripts/02_specialized_summary.json`
+- **Log & Container Telemetry Extraction**: Capture container CPU %, resident memory (`MiB`/`GiB`), active thread count, disk I/O volume, and server log stack traces (`SQLTransientConnectionException`, `FlowableOptimisticLockingException`, `AllNodesFailedException`, `IOException: Broken pipe`, `OutOfMemoryError`).
 
-*Record all empirical metrics (`http_reqs`, `p(95)` duration, `http_req_failed` %, scenario-specific thresholds).*
-
-### 5. Phase 2: Specialized Flaw Scenarios (Custom Profiles)
-If code inspection reveals specific software bugs or architectural flaws from the **16-Item Structural Flaw Taxonomy**, craft **custom k6 scenarios** on top of common load profiles specifically designed to expose them:
-- **Concurrency & Race Conditions (`Flaw 1.1` – `Flaw 1.4`)**: Parallel VU scenarios hitting check-then-act endpoints (`POST /coupon/receive`, `POST /orders`) simultaneously or cross-user `ThreadLocal` context bleed probes.
-- **Resource Pool Starvation (`Flaw 2.1` – `Flaw 2.4`)**: Parallel scenario pairing heavy/blocking endpoints against fast latency probes.
-- **Database Bottlenecks (`Flaw 3.1` – `Flaw 3.3`)**: Concurrent write scenarios on hot rows (SQLite lock, MySQL `FOR UPDATE`) or N+1 JPA entity fetch loops.
-- **Hardware & Memory (`Flaw 4.1` – `Flaw 5.2`)**: Unpaginated list/export fetch allocators or socket connection floods.
-- **Distributed System Failures (`Flaw 6.1` – `Flaw 6.2`)**: Inter-service RPC fan-out latency injection.
-
-### 6. Raw Result Export & Log Extraction
-- **Raw Execution Results**: Every `k6` execution run MUST export its raw metrics JSON file directly into the script directory using `--summary-export=k6-scripts/<scenario>_summary.json` (e.g. `k6-scripts/01_standard_summary.json`, `k6-scripts/02_specialized_summary.json`).
-- **Log Extraction**: Extract application logs post-test to detect runtime exceptions (`CannotGetJdbcConnectionException`, `LockTimeoutException`, `SQLiteException`, `ConcurrentModificationException`, `NullPointerException`, `OutOfMemoryError`).
-
-### 7. Script Directory Report & Synthesis Rules
-- **Mandatory Report File Location**: The complete individual analysis report for each candidate project MUST be saved **directly in the script folder** at **`<project-root>/k6-scripts/ANALYSIS.md`**.
-- **Empirical Findings Summary Directives**: The `ANALYSIS.md` file MUST summarize the **empirical findings themselves** with exact quantitative metrics (total request count, throughput req/s, average, p90, p95, and max latencies, HTTP failure percentages and counts, bytes transferred, exact error messages, stack traces, over-redemption counts, and lock contention numbers), **NOT ONLY their setup and which test found what, and if it was phase 1 or 2**.
-- **Master Summary Integration**: Synthesize the empirical findings from each project's `<project-root>/k6-scripts/ANALYSIS.md` into the master document at `thesis/projects/ANALYSIS_SUMMARY.md`.
+### 5. Script Directory Report & Synthesis Rules
+- **Mandatory Report File Location**: Save the complete analysis report at **`<project-root>/k6-scripts/ANALYSIS.md`**.
+- **Empirical Findings Summary Directives**: `ANALYSIS.md` MUST present a clear **Phase 1 (10-VU Baseline) vs. Phase 2 (Tailored Flaw Stress)** comparison table with exact quantitative metrics (`http_reqs`, `req/s`, avg, $p50$, $p90$, $p95$, max latencies, HTTP failure rates/counts, canary probe latency degradation, CPU/RAM/Disk telemetry, and server stack traces) alongside exact source code snippets and line numbers.
+- **Master Summary Integration**: Synthesize findings into `thesis/projects/ANALYSIS_SUMMARY.md`.
 
 ---
 
 ## Reference Guides
 
-- **Traffic Shaping & Load Profiles**: See `references/profiles.md` for k6 `scenarios` and traffic shaping configurations.
-- **Taxonomy Verification Strategies**: See `references/taxonomy-verification.md` for specialized test design matching the 16 taxonomy items.
+- **Traffic Shaping & Load Profiles**: See `references/profiles.md` for the exact Phase 1 (10-VU 120s baseline) and Phase 2 (Pattern 2A Dual-Scenario & Pattern 2B Concurrency Barrier) k6 templates.
+- **Taxonomy Verification Strategies**: See `references/taxonomy-verification.md` for specialized test design matching all taxonomy flaws.
 - **Execution Orchestration**: See `references/workflow.md` for step-by-step execution and report placement rules.
